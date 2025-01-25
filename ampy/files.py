@@ -59,7 +59,10 @@ class Files(object):
         # expects string data.
         command = """
             import sys
-            import ubinascii
+            try:
+                import ubinascii
+            except ImportError:
+                import binascii as ubinascii
             with open('{0}', 'rb') as infile:
                 while True:
                     result = infile.read({1})
@@ -180,6 +183,54 @@ class Files(object):
         # Parse the result list and return it.
         return ast.literal_eval(out.decode("utf-8"))
 
+    def lsi(self, directory="/"):
+        """List the contents of the specified directory (or root if none is
+        specified).  Returns a list of strings with the names of files in the
+        specified directory.  If long_format is True then a list of 2-tuples
+        with the name and size (in bytes) of the item is returned.  Note that
+        it appears the size of directories is not supported by MicroPython and
+        will always return 0 (i.e. no recursive size computation).
+        """
+
+        # Disabling for now, see https://github.com/adafruit/ampy/issues/55.
+        # # Make sure directory ends in a slash.
+        # if not directory.endswith("/"):
+        #     directory += "/"
+
+        # Make sure directory starts with slash, for consistency.
+        if not directory.startswith("/"):
+            directory = "/" + directory
+
+        command = """\
+                try:        
+                    import os
+                except ImportError:
+                    import uos as os
+
+                def listdir(directory):
+                    if directory == '/':                
+                        return sorted([(f[0], f[1]) for f in os.ilistdir(directory)])
+                    else:
+                        return sorted([(directory + '/' + f[0], f[1]) for f in os.ilistdir(directory)])
+
+                print(listdir('{0}'))
+                """.format(
+                    directory
+                )
+        self._pyboard.enter_raw_repl()
+        try:
+            out = self._pyboard.exec_(textwrap.dedent(command))
+        except PyboardError as ex:
+            # Check if this is an OSError #2, i.e. directory doesn't exist and
+            # rethrow it as something more descriptive.
+            message = ex.args[2].decode("utf-8")
+            if message.find("OSError") != -1 and message.find("2") != 1:
+                raise RuntimeError("No such directory: {0}".format(directory))
+            else:
+                raise ex
+        self._pyboard.exit_raw_repl()
+        # Parse the result list and return it.
+        return ast.literal_eval(out.decode("utf-8"))
     def mkdir(self, directory, exists_okay=False):
         """Create the specified directory.  Note this cannot create a recursive
         hierarchy of directories, instead each one should be created separately.

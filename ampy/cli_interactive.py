@@ -28,7 +28,7 @@ import serial.serialutil
 
 import click
 import dotenv
-from progress_bar import ProgressBar
+from progress_bar import PorgressBar
 
 # Load AMPY_PORT et al from .ampy file
 # Performed here because we need to beat click's decorators.
@@ -40,8 +40,20 @@ import ampy.files as files
 import ampy.pyboard as pyboard
 
 
-_board = None
+# On Windows fix the COM port path name for ports above 9 (see comment in
+# windows_full_port_name function).
+port = "/dev/ttyACM0"
+baud = 115200
+delay = 0
+history = []
+pico_wd = '/'
+queued_cmd = None
+cmd = None
 
+
+if platform.system() == "Windows":
+    port = windows_full_port_name(port)
+_board = pyboard.Pyboard(port, baudrate=baud, rawdelay=delay)
 
 def windows_full_port_name(portname):
     # Helper function to generate proper Windows COM port paths.  Apparently
@@ -56,53 +68,6 @@ def windows_full_port_name(portname):
         return "\\\\.\\{0}".format(portname)
 
 
-@click.group()
-@click.option(
-    "--port",
-    "-p",
-    envvar="AMPY_PORT",
-    required=True,
-    type=click.STRING,
-    help="Name of serial port for connected board.  Can optionally specify with AMPY_PORT environment variable.",
-    metavar="PORT",
-)
-@click.option(
-    "--baud",
-    "-b",
-    envvar="AMPY_BAUD",
-    default=115200,
-    type=click.INT,
-    help="Baud rate for the serial connection (default 115200).  Can optionally specify with AMPY_BAUD environment variable.",
-    metavar="BAUD",
-)
-@click.option(
-    "--delay",
-    "-d",
-    envvar="AMPY_DELAY",
-    default=0,
-    type=click.FLOAT,
-    help="Delay in seconds before entering RAW MODE (default 0). Can optionally specify with AMPY_DELAY environment variable.",
-    metavar="DELAY",
-)
-@click.version_option()
-def cli(port, baud, delay):
-    """ampy - Adafruit MicroPython Tool
-
-    Ampy is a tool to control MicroPython boards over a serial connection.  Using
-    ampy you can manipulate files on the board's internal filesystem and even run
-    scripts.
-    """
-    global _board
-    # On Windows fix the COM port path name for ports above 9 (see comment in
-    # windows_full_port_name function).
-    if platform.system() == "Windows":
-        port = windows_full_port_name(port)
-    _board = pyboard.Pyboard(port, baudrate=baud, rawdelay=delay)
-
-
-@cli.command()
-@click.argument("remote_file")
-@click.argument("local_file", type=click.File("wb"), required=False)
 def get(remote_file, local_file):
     """
     Retrieve a file from the board.
@@ -127,19 +92,10 @@ def get(remote_file, local_file):
     contents = board_files.get(remote_file)
     # Print the file out if no local file was provided, otherwise save it.
     if local_file is None:
-        print(contents.decode("utf-8"))
+        return contents.decode("utf-8")
     else:
         local_file.write(contents)
 
-
-@cli.command()
-@click.option(
-    "--exists-okay", is_flag=True, help="Ignore if the directory already exists."
-)
-@click.option(
-    "--make-parents", is_flag=True, help="Create any missing parents."
-)
-@click.argument("directory")
 def mkdir(directory, exists_okay, make_parents):
     """
     Create a directory on the board.
@@ -171,22 +127,7 @@ def mkdir(directory, exists_okay, make_parents):
             board_files.mkdir(dirpath, exists_okay=True)
     board_files.mkdir(directory, exists_okay=exists_okay)
 
-
-@cli.command()
-@click.argument("directory", default="/")
-@click.option(
-    "--long_format",
-    "-l",
-    is_flag=True,
-    help="Print long format info including size of files.  Note the size of directories is not supported and will show 0 values.",
-)
-@click.option(
-    "--recursive",
-    "-r",
-    is_flag=True,
-    help="recursively list all files and (empty) directories.",
-)
-def ls(directory, long_format, recursive):
+def ls(directory):
     """List contents of a directory on the board.
 
     Can pass an optional argument which is the path to the directory.  The
@@ -204,16 +145,18 @@ def ls(directory, long_format, recursive):
     MicroPython does not calculate the size of folders and will show 0 bytes):
 
       ampy --port /board/serial/port ls -l /foo/bar
-    """
+      """
     # List each file/directory on a separate line.
     board_files = files.Files(_board)
-    for f in board_files.ls(directory, long_format=long_format, recursive=recursive):
-        print(f)
+    dlist = []
+    for f in board_files.lsi(directory):
+        d = f[0].split('/')[-1] # file or dir name
+        if f[1] == 0x4000: # a directory
+            dlist.insert(0, "+ " + d)
+        else:
+            dlist.append("- " + d)
+    return dlist
 
-
-@cli.command()
-@click.argument("local", type=click.Path(exists=True))
-@click.argument("remote", required=False)
 def put(local, remote):
     """Put a file or folder and its contents on the board.
 
@@ -257,7 +200,7 @@ def put(local, remote):
             for filename in child_files:
                 path = os.path.join(parent, filename)
                 size = os.stat(path).st_size
-                pb_bath.add_subjob(ProgressBar(name=path,total=size ))
+                pb_bath.add_subjob(PorgressBar(name=path,total=size ))
 
         # Directory copy, create the directory and walk all children to copy
         # over the files.
@@ -288,13 +231,11 @@ def put(local, remote):
         # Put the file on the board.
         with open(local, "rb") as infile:
             data = infile.read()
-#            progress = ProgressBar()
+            progress = PorgressBar(name=local, total=len(data))
             board_files = files.Files(_board)
-            board_files.put(remote, data, None)
+            board_files.put(remote, data, progress.on_progress_done)
     print('')
 
-@cli.command()
-@click.argument("remote_file")
 def rm(remote_file):
     """Remove a file from the board.
 
@@ -311,18 +252,14 @@ def rm(remote_file):
     board_files = files.Files(_board)
     board_files.rm(remote_file)
 
-
-@cli.command()
-@click.option(
-    "--missing-okay", is_flag=True, help="Ignore if the directory does not exist."
-)
-@click.argument("remote_folder")
 def rmdir(remote_folder, missing_okay):
     """Forcefully remove a folder and all its children from the board.
 
     Remove the specified folder from the board's filesystem.  Must specify one
     argument which is the path to the folder to delete.  This will delete the
     directory and ALL of its children recursively, use with caution!
+
+    If missing_okay: ignore if directory does not exist
 
     For example to delete everything under /adafruit_library from the root of a
     board run:
@@ -333,17 +270,10 @@ def rmdir(remote_folder, missing_okay):
     board_files = files.Files(_board)
     board_files.rmdir(remote_folder, missing_okay=missing_okay)
 
-
-@cli.command()
-@click.argument("local_file")
-@click.option(
-    "--no-output",
-    "-n",
-    is_flag=True,
-    help="Run the code without waiting for it to finish and print output.  Use this when running code with main loops that never return.",
-)
 def run(local_file, no_output):
     """Run a script and print its output.
+    
+    no_output: suppress output for scripts with infinite loops or no output
 
     Run will send the specified file to the board and execute it immediately.
     Any output from the board will be printed to the console (note that this is
@@ -372,30 +302,6 @@ def run(local_file, no_output):
             "Failed to find or read input file: {0}".format(local_file), err=True
         )
 
-
-@cli.command()
-@click.option(
-    "--bootloader", "mode", flag_value="BOOTLOADER", help="Reboot into the bootloader"
-)
-@click.option(
-    "--hard",
-    "mode",
-    flag_value="NORMAL",
-    help="Perform a hard reboot, including running init.py",
-)
-@click.option(
-    "--repl",
-    "mode",
-    flag_value="SOFT",
-    default=True,
-    help="Perform a soft reboot, entering the REPL  [default]",
-)
-@click.option(
-    "--safe",
-    "mode",
-    flag_value="SAFE_MODE",
-    help="Perform a safe-mode reboot.  User code will not be run and the filesystem will be writeable over USB",
-)
 def reset(mode):
     """Perform soft reset/reboot of the board.
 
@@ -403,6 +309,8 @@ def reset(mode):
     and firmware, several different types of reset may be supported.
 
       ampy --port /board/serial/port reset
+
+    modes: SAFE_MODE, SOFT (to REPL), NORMAL (runs init.py), BOOTLOADER
     """
     _board.enter_raw_repl()
     if mode == "SOFT":
@@ -443,17 +351,142 @@ def reset(mode):
         # serial when restarted via microcontroller.reset()
         pass
 
+def parse_dir(my_d: str):
+    d = my_d
+    if d == '..':
+        d = pico_wd.split('/')[:-2]
+        d = '/'.join(d) if len(d) > 1 else '/'
+    elif d[:3] == '../':
+        root = pico_wd.split('/')[:-2]
+        root = '/'.join(root) if len(root) > 1 else ''
+        d = root + d[2:]
+    elif d[0] != '/':
+        d = pico_wd + d
+
+    if d == '//':
+        d = '/'
+    print(f"Returning {d}")
+    return d
 
 if __name__ == "__main__":
-    try:
-        cli()
-    finally:
-        # Try to ensure the board serial connection is always gracefully closed.
-        if _board is not None:
+    while True:
+        if pico_wd[-1] != '/':
+            pico_wd = pico_wd + '/'
+
+        #get, mkdir, ls, *cd, put, rm, rmdir, run, reset
+        #lsl, pwd, cdl, edit, repl, port, history
+        query = input(f"ampy in {pico_wd} >>> ")
+        tokens = query.split(" ")
+        print(tokens)
+        command = tokens[0]
+        params = tokens[1:]
+        if command == "get" or command == "get!":
+            remote, local = None, None
+            if len(params) == 2:
+                remote, local = params[0], params[1]
+            elif len(params) == 1:
+                remote = params[0]
+            else:
+                print("malformed command")
+                # TODO implement help message
             try:
-                _board.close()
-            except:
-                # Swallow errors when attempting to close as it's just a best effort
-                # and shouldn't cause a new error or problem if the connection can't
-                # be closed.
-                pass
+                if local is not None:
+                    flags = 'xb'
+                    if command == "get!":
+                        flags = 'wb'
+                    with open(local, flags) as f:
+                        get(remote, f)
+                else:
+                    get(remote, None)
+            except RuntimeError as e:
+                print(e)
+            except FileExistsError:
+                print("Local file already exists. Use get! to overwrite.")
+        elif command in ["put", "put!"]:
+            local, remote = None, None
+            if len(params) == 2:
+                local, remote = params[0], params[1]
+            elif len(params) == 1:
+                local = remote = params[0]
+
+            file_exists = True
+            try:
+                file = get(remote, None)
+            except RuntimeError as e:
+                if "No such" in str(e):
+                    file_exists = False
+                else:
+                    raise e
+
+            try:
+                if local is not None and file_exists == False or command == "put!":
+                    put(local, remote)
+                else:
+                    if local is None:
+                        print("No file specified!") #TODO
+                    else:
+                        print("File exists on device. Use put! to overwrite.")
+            except RuntimeError as e:
+                print(e)
+            except FileNotFoundError as e:
+                print(e)
+
+
+        elif command == "mkdir":
+            if len(params) > 0:
+                for d in params:
+                    try:
+                        mkdir(parse_dir(d), False, True)
+                    except files.DirectoryExistsError:
+                        print(f"Directory already exists: {d}")
+            else:
+                print("malformed command")
+                # TODO help message
+        elif command == "ls":
+            # TODO: handle malformed commands
+            d = None
+            if len(params) == 1:
+                d = parse_dir(params[0])
+                print(d)
+            elif len(params) == 0:
+                d = pico_wd
+            if d[0] != '/':
+                d = pico_wd + d
+            if d is not None:
+                print(f"Trying to ls {d}")
+                try:
+                    for f in ls(d):
+                        print(f)
+                except RuntimeError as e:
+                    print(e)
+        elif command == "cd":
+            if len(params) == 0:
+                pico_wd = '/'
+            elif len(params) == 1:
+                d = params[0]
+                if d[0] != '/':
+                    if d == '..':
+                        d = pico_wd.split('/')[:-2]
+                        d = '/'.join(d) if len(d) > 1 else '/'
+                    else:
+                        d = pico_wd + d
+                print(f"Trying to cd into {d}")
+                try:
+                    x = ls(d)
+                    pico_wd = d
+                except RuntimeError as e:
+                    print(e)
+                    
+            else:
+                print("Malformed command")
+
+
+    # Try to ensure the board serial connection is always gracefully closed.
+    if _board is not None:
+        try:
+            _board.close()
+        except:
+            # Swallow errors when attempting to close as it's just a best effort
+            # and shouldn't cause a new error or problem if the connection can't
+            # be closed.
+            pass
