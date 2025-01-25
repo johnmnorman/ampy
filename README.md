@@ -6,6 +6,9 @@ terminal. Little bug fixes will be added as necessary. This fork does not raise 
 working with circuitpython (although a lot of these features are unnecessary with CircuitPy since it's
 drag and drop.)
 
+Development is very very early right now, so expect minimal functionality, lots of bugs, and poor error
+handling!
+
 ## ampy
 
 MicroPython Tool (ampy) - Utility to interact with a CircuitPython or MicroPython board over a serial connection.
