@@ -47,6 +47,7 @@ baud = 115200
 delay = 0
 history = []
 pico_wd = '/'
+pc_wd = os.getcwd()
 queued_cmd = None
 cmd = None
 
@@ -363,8 +364,8 @@ def parse_dir(my_d: str):
     elif d[0] != '/':
         d = pico_wd + d
 
-    if d == '//':
-        d = '/'
+    d = os.path.normpath(d)
+    d = os.path.expanduser(d)
     print(f"Returning {d}")
     return d
 
@@ -462,14 +463,9 @@ if __name__ == "__main__":
         elif command == "cd":
             if len(params) == 0:
                 pico_wd = '/'
+                #TODO use parse_dir
             elif len(params) == 1:
-                d = params[0]
-                if d[0] != '/':
-                    if d == '..':
-                        d = pico_wd.split('/')[:-2]
-                        d = '/'.join(d) if len(d) > 1 else '/'
-                    else:
-                        d = pico_wd + d
+                d = parse_dir(params[0])
                 print(f"Trying to cd into {d}")
                 try:
                     x = ls(d)
@@ -479,7 +475,51 @@ if __name__ == "__main__":
                     
             else:
                 print("Malformed command")
+        elif command == "pwd":
+            print(f"PC:\n    {os.getcwd()}")
+            print(f"{port}:\n    {pico_wd}")
+        elif command == "cdl":
+            d = None
+            if len(params) == 1:
+                d = params[0]
 
+            try:
+                os.chdir(d)
+            except FileNotFoundError as e:
+                print(e)
+        elif command in ['lsl', 'lsla']:
+            d = None
+            d_list = []
+            if len(params) == 1:
+                d = params[0]
+                if d[0] == "~":
+                    d = os.path.expanduser(d)
+                if os.path.isdir(d):
+                    for f in os.listdir(d):
+                        if f[0] == '.' and command != 'lsla':
+                            continue
+                        elif os.path.isdir(os.path.normpath(d + '/' + f)):
+                            d_list.insert(0, "+ " + f)
+                        else:
+                            d_list.append("- " + f)
+            elif len(params) == 0:
+                    d = os.getcwd()
+                    for f in os.listdir():
+                        if f[0] == '.' and command != 'lsla':
+                            continue
+                        elif os.path.isdir(os.path.normpath(d + '/' + f)):
+                            d_list.insert(0, "+ " + f)
+                        else:
+                            d_list.append("- " + f)
+            if d is None:
+                print("malformed command.") # TODO
+            elif len(d_list) == 0:
+                print(f"{d}:")
+                print("    <Directory is empty.>")
+            else:
+                print(f"{d}:")
+                for f in d_list:
+                    print("    " + f)
 
     # Try to ensure the board serial connection is always gracefully closed.
     if _board is not None:
