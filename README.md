@@ -1,6 +1,13 @@
-# ampy replacement
-We have been working on the next version of ampy which will solve various problems with the current system. Based on a new modular architecture, it makes adding device support and features very simple using plugins. It also aims to support coding over WiFi for supported devices. This should eliminate the need to have a wired connection and improve reliability as well.
-[Here](https://github.com/curiouswala/ampy-2) is an alpha release please go ahead and play with it. Leave suggestions for a new name in the issue section. :)
+## Interactive ampy
+
+This is a fork of ampy to add an interactive frontend to the program. It also means to add some extra
+functionality to make manipulation of files on the local and remote system more like working in a linux
+terminal. Little bug fixes will be added as necessary. This fork does not raise the ubinascii error when
+working with circuitpython (although a lot of these features are unnecessary with CircuitPy since it's
+drag and drop.)
+
+Development is very very early right now, so expect minimal functionality, lots of bugs, and poor error
+handling!
 
 ## ampy
 
