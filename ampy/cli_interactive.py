@@ -302,9 +302,7 @@ def run(local_file, no_output):
         if output is not None:
             print(output.decode("utf-8"), end="")
     except IOError:
-        click.echo(
-            "Failed to find or read input file: {0}".format(local_file), err=True
-        )
+        print("Failed to find or read input file: {0}".format(local_file))
 
 def run_remote(remote_file, no_output):
     '''Takes an io.BytesIO object as a dummy file'''
@@ -390,7 +388,7 @@ if __name__ == "__main__":
         if pico_wd[-1] != '/':
             pico_wd = pico_wd + '/'
 
-        #%get, %mkdir, %ls, %cd, %put, %rm, %rmdir, run, reset
+        #%get, %mkdir, %ls, %cd, %put, %rm, %rmdir, %run, reset
         #%lsl, %pwd, %cdl, %repl, %port, history
         query = input(f"ampy in {pico_wd} >>> ")
         tokens = query.split(" ")
@@ -560,9 +558,30 @@ if __name__ == "__main__":
             except FileNotFoundError:
                 print("Couldn't find tio. Is it in your PATH?")
         elif command == "run":
-            f = get(params[0], None)
-            fake_file = io.BytesIO(bytes(f, encoding='utf-8'))
-            run_remote(fake_file, False)
+            # Runs a script on the device
+            if len(params) == 1:
+                try:
+                    p = parse_dir(params[0])
+                    f = get(p, None)
+                    fake_file = io.BytesIO(bytes(f, encoding='utf-8'))
+                    run_remote(fake_file, False)
+                except RuntimeError as e:
+                    print(e)
+                except pyboard.PyboardError as e:
+                    print("Exception raised from MicroPython device:")
+                    print()
+                    print(e)
+        elif command == "runl":
+            # Runs a script <l>ocally, on computer
+            if len(params) == 1:
+                try:
+                    run(params[0], False)
+                except RuntimeError as e:
+                    print(e)
+                except pyboard.PyboardError as e:
+                    print("Exception raised from MicroPython device:")
+                    print()
+                    print(e)
 
             
 

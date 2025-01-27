@@ -276,13 +276,12 @@ class Pyboard:
             data_consumer = stdout_write_bytes
         ret, ret_err = self.exec_raw(command, data_consumer=data_consumer)
         if ret_err:
-            raise PyboardError('exception', ret, ret_err)
+            raise PyboardError(ret_err.decode('utf-8'))
         return ret
 
     def execfile(self, filename, stream_output=False):
         with open(filename, 'rb') as f:
             pyfile = f.read()
-            print(pyfile)
         return self.exec_(pyfile, stream_output=stream_output)
 
     def execfileobject(self, file, stream_output=False):
