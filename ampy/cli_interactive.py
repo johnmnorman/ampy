@@ -565,7 +565,7 @@ if __name__ == "__main__":
                     try:
                         rm(d)
                     except RuntimeError as e:
-                        print(e)
+                        print(f"No such file, or file is non-empty directory: {d}")
 
             elif command == 'rm' and len(d_list) > 0:
                 try:
