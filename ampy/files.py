@@ -375,3 +375,25 @@ class Files(object):
                 self._pyboard.exec_raw_no_follow(infile.read())
         self._pyboard.exit_raw_repl()
         return out
+
+    def run_file(self, file, wait_output=True, stream_output=True):
+        """Run the provided script and return its output.  If wait_output is True
+        (default) then wait for the script to finish and then return its output,
+        otherwise just run the script and don't wait for any output.
+        If stream_output is True(default) then return None and print outputs to
+        stdout without buffering.
+        """
+        self._pyboard.enter_raw_repl()
+        out = None
+        if stream_output:
+            self._pyboard.execfileobject(file, stream_output=True)
+        elif wait_output:
+            # Run the file and wait for output to return.
+            out = self._pyboard.execfileobject(file)
+        else:
+            # Read the file and run it using lower level pyboard functions that
+            # won't wait for it to finish or return output.
+            self._pyboard.exec_raw_no_follow(file.read())
+        self._pyboard.exit_raw_repl()
+        return out
+

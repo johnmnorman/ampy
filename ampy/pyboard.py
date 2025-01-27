@@ -282,6 +282,12 @@ class Pyboard:
     def execfile(self, filename, stream_output=False):
         with open(filename, 'rb') as f:
             pyfile = f.read()
+            print(pyfile)
+        return self.exec_(pyfile, stream_output=stream_output)
+
+    def execfileobject(self, file, stream_output=False):
+        '''Takes an opened bytestream file'''
+        pyfile = file.read()
         return self.exec_(pyfile, stream_output=stream_output)
 
     def get_time(self):

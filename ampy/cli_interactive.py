@@ -22,9 +22,12 @@
 from __future__ import print_function
 import os
 import platform
+import io
 import posixpath
 import re
 import serial.serialutil
+
+import subprocess
 
 import click
 import dotenv
@@ -303,6 +306,18 @@ def run(local_file, no_output):
             "Failed to find or read input file: {0}".format(local_file), err=True
         )
 
+def run_remote(remote_file, no_output):
+    '''Takes an io.BytesIO object as a dummy file'''
+    board_files = files.Files(_board)
+    try:
+        output = board_files.run_file(remote_file, not no_output, not no_output)
+        if output is not None:
+            print(output.decode("utf-8"), end="")
+    except IOError:
+        click.echo(
+            "Failed to find or read input file: {0}".format(remote_file), err=True
+        )
+
 def reset(mode):
     """Perform soft reset/reboot of the board.
 
@@ -375,8 +390,8 @@ if __name__ == "__main__":
         if pico_wd[-1] != '/':
             pico_wd = pico_wd + '/'
 
-        #%get, %mkdir, %ls, *cd, put, rm, rmdir, run, reset
-        #lsl, pwd, cdl, edit, repl, port, history
+        #%get, %mkdir, %ls, %cd, %put, %rm, %rmdir, run, reset
+        #%lsl, %pwd, %cdl, %repl, %port, history
         query = input(f"ampy in {pico_wd} >>> ")
         tokens = query.split(" ")
         print(tokens)
@@ -404,6 +419,22 @@ if __name__ == "__main__":
                 print(e)
             except FileExistsError:
                 print("Local file already exists. Use get! to overwrite.")
+        elif command == "port":
+            if len(params) == 0:
+                print(f"Device port is:\n    {port}")
+            elif len(params) == 1:
+                old_board = _board
+                old_port = port
+                try:
+                    _board = pyboard.Pyboard(params[0], baudrate=baud, rawdelay=delay)
+                    port = params[0]
+                    print(f"Device port changed to:\n    {port}")
+                except pyboard.PyboardError as e:
+                    _board = old_board
+                    port = old_port
+                    print("Error: " + str(e))
+            else:
+                print("Malformed command") # TODO help
         elif command in ["put", "put!"]:
             local, remote = None, None
             if len(params) == 2:
@@ -519,6 +550,22 @@ if __name__ == "__main__":
                 print(f"{d}:")
                 for f in d_list:
                     print("    " + f)
+        elif command == "repl":
+            print("Connecting interactively to device. (Requires tio)")
+            try:
+                result = subprocess.run(["tio", port],
+                                        check=True,
+                                        stderr=subprocess.PIPE)
+                print("Exiting REPL mode... ")
+            except FileNotFoundError:
+                print("Couldn't find tio. Is it in your PATH?")
+        elif command == "run":
+            f = get(params[0], None)
+            fake_file = io.BytesIO(bytes(f, encoding='utf-8'))
+            run_remote(fake_file, False)
+
+            
+
         elif command in ['rmdir', 'rmdir!']:
             d_list = params
             if len(params) == 1 and params[0] == '*':
