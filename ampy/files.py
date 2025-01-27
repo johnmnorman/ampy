@@ -223,7 +223,7 @@ class Files(object):
         except PyboardError as ex:
             # Check if this is an OSError #2, i.e. directory doesn't exist and
             # rethrow it as something more descriptive.
-            message = ex.args[2].decode("utf-8")
+            message = str(ex)
             if message.find("OSError") != -1 and message.find("2") != 1:
                 raise RuntimeError("No such directory: {0}".format(directory))
             else:

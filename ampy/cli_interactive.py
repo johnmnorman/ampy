@@ -31,7 +31,8 @@ import subprocess
 
 import click
 import dotenv
-from progress_bar import PorgressBar
+from progress_bar import ProgressBar
+
 
 # Load AMPY_PORT et al from .ampy file
 # Performed here because we need to beat click's decorators.
@@ -380,274 +381,331 @@ def parse_dir(my_d: str):
     d = os.path.normpath(d)
     if '~' in d:
         raise FileNotFoundError("Remote device has no home directory.")
-    print(f"Returning {d}")
     return d
 
-if __name__ == "__main__":
+def cli_interactive():
+    global pico_wd
+    global queued_cmd
+    global port
+    global _board
     while True:
-        if pico_wd[-1] != '/':
-            pico_wd = pico_wd + '/'
+        try:
+            block_history = False
+            if pico_wd[-1] != '/':
+                pico_wd = pico_wd + '/'
 
-        #%get, %mkdir, %ls, %cd, %put, %rm, %rmdir, %run, reset
-        #%lsl, %pwd, %cdl, %repl, %port, history
-        query = input(f"ampy in {pico_wd} >>> ")
-        tokens = query.split(" ")
-        print(tokens)
-        command = tokens[0]
-        params = tokens[1:]
-        if command == "get" or command == "get!":
-            remote, local = None, None
-            if len(params) == 2:
-                remote, local = params[0], params[1]
-            elif len(params) == 1:
-                remote = params[0]
+            #%get, %mkdir, %ls, %cd, %put, %rm, %rmdir, %run, %reset
+            #%lsl, %pwd, %cdl, %repl, %port, %history
+            if queued_cmd is None:
+                query = input(f"ampy in {port}{pico_wd} >>> ")
+                tokens = query.split(" ")
+                command = tokens[0]
+                params = tokens[1:]
             else:
-                print("malformed command")
-                # TODO implement help message
-            try:
-                if local is not None:
-                    flags = 'xb'
-                    if command == "get!":
-                        flags = 'wb'
-                    with open(local, flags) as f:
-                        get(remote, f)
+                block_history = True
+                command = queued_cmd[0]
+                params = queued_cmd[1:]
+                queued_cmd = None
+            if command == "get" or command == "get!":
+                remote, local = None, None
+                if len(params) == 2:
+                    remote, local = params[0], params[1]
+                elif len(params) == 1:
+                    remote = params[0]
                 else:
-                    get(remote, None)
-            except RuntimeError as e:
-                print(e)
-            except FileExistsError:
-                print("Local file already exists. Use get! to overwrite.")
-        elif command == "port":
-            if len(params) == 0:
-                print(f"Device port is:\n    {port}")
-            elif len(params) == 1:
-                old_board = _board
-                old_port = port
+                    print("malformed command")
+                    # TODO implement help message
                 try:
-                    _board = pyboard.Pyboard(params[0], baudrate=baud, rawdelay=delay)
-                    port = params[0]
-                    print(f"Device port changed to:\n    {port}")
-                except pyboard.PyboardError as e:
-                    _board = old_board
-                    port = old_port
-                    print("Error: " + str(e))
-            else:
-                print("Malformed command") # TODO help
-        elif command in ["put", "put!"]:
-            local, remote = None, None
-            if len(params) == 2:
-                local, remote = params[0], params[1]
-            elif len(params) == 1:
-                local = remote = params[0]
-
-            file_exists = True
-            try:
-                file = get(remote, None)
-            except RuntimeError as e:
-                if "No such" in str(e):
-                    file_exists = False
-                else:
-                    raise e
-
-            try:
-                if local is not None and file_exists == False or command == "put!":
-                    put(local, remote)
-                else:
-                    if local is None:
-                        print("No file specified!") #TODO
+                    if local is not None:
+                        flags = 'xb'
+                        if command == "get!":
+                            flags = 'wb'
+                        with open(local, flags) as f:
+                            get(remote, f)
                     else:
-                        print("File exists on device. Use put! to overwrite.")
-            except RuntimeError as e:
-                print(e)
-            except FileNotFoundError as e:
-                print(e)
-        elif command == "mkdir":
-            if len(params) > 0:
-                for d in params:
+                        get(remote, None)
+                except RuntimeError as e:
+                    print(e)
+                except FileExistsError:
+                    print("Local file already exists. Use get! to overwrite.")
+            elif command == "port":
+                if len(params) == 0:
+                    print(f"Device port is:\n    {port}")
+                elif len(params) == 1:
+                    old_board = _board
+                    old_port = port
                     try:
-                        mkdir(parse_dir(d), False, True)
-                    except files.DirectoryExistsError:
-                        print(f"Directory already exists: {d}")
-            else:
-                print("malformed command")
-                # TODO help message
-        elif command == "ls":
-            # TODO: handle malformed commands
-            d = None
-            if len(params) == 1:
-                d = parse_dir(params[0])
-                print(d)
-            elif len(params) == 0:
-                d = pico_wd
-            if d[0] != '/':
-                d = pico_wd + d
-            if d is not None:
-                print(f"Trying to ls {d}")
-                try:
-                    for f in ls(d):
-                        print(f)
-                except RuntimeError as e:
-                    print(e)
-        elif command == "cd":
-            if len(params) == 0:
-                pico_wd = '/'
-                #TODO use parse_dir
-            elif len(params) == 1:
-                d = parse_dir(params[0])
-                print(f"Trying to cd into {d}")
-                try:
-                    x = ls(d)
-                    pico_wd = d
-                except RuntimeError as e:
-                    print(e)
-                    
-            else:
-                print("Malformed command")
-        elif command == "pwd":
-            print(f"PC:\n    {os.getcwd()}")
-            print(f"{port}:\n    {pico_wd}")
-        elif command == "cdl":
-            d = None
-            if len(params) == 1:
-                d = params[0]
+                        _board = pyboard.Pyboard(params[0], baudrate=baud, rawdelay=delay)
+                        port = params[0]
+                        print(f"Device port changed to:\n    {port}")
+                    except pyboard.PyboardError as e:
+                        _board = old_board
+                        port = old_port
+                        print("Error: " + str(e))
+                else:
+                    print("Malformed command") # TODO help
+            elif command in ["put", "put!"]:
+                local, remote = None, None
+                if len(params) == 2:
+                    local, remote = params[0], params[1]
+                elif len(params) == 1:
+                    local = remote = params[0]
 
-            try:
-                os.chdir(d)
-            except FileNotFoundError as e:
-                print(e)
-        elif command in ['lsl', 'lsla']:
-            d = None
-            d_list = []
-            if len(params) == 1:
-                d = params[0]
-                if d[0] == "~":
-                    d = os.path.expanduser(d)
-                if os.path.isdir(d):
-                    for f in os.listdir(d):
-                        if f[0] == '.' and command != 'lsla':
-                            continue
-                        elif os.path.isdir(os.path.normpath(d + '/' + f)):
-                            d_list.insert(0, "+ " + f)
+                file_exists = True
+                try:
+                    file = get(remote, None)
+                except RuntimeError as e:
+                    if "No such" in str(e):
+                        file_exists = False
+                    else:
+                        raise e
+
+                try:
+                    if local is not None and file_exists == False or command == "put!":
+                        put(local, remote)
+                    else:
+                        if local is None:
+                            print("No file specified!") #TODO
                         else:
-                            d_list.append("- " + f)
-            elif len(params) == 0:
-                    d = os.getcwd()
-                    for f in os.listdir():
-                        if f[0] == '.' and command != 'lsla':
-                            continue
-                        elif os.path.isdir(os.path.normpath(d + '/' + f)):
-                            d_list.insert(0, "+ " + f)
-                        else:
-                            d_list.append("- " + f)
-            if d is None:
-                print("malformed command.") # TODO
-            elif len(d_list) == 0:
-                print(f"{d}:")
-                print("    <Directory is empty.>")
-            else:
-                print(f"{d}:")
-                for f in d_list:
-                    print("    " + f)
-        elif command == "repl":
-            print("Connecting interactively to device. (Requires tio)")
-            try:
-                result = subprocess.run(["tio", port],
-                                        check=True,
-                                        stderr=subprocess.PIPE)
-                print("Exiting REPL mode... ")
-            except FileNotFoundError:
-                print("Couldn't find tio. Is it in your PATH?")
-        elif command == "run":
-            # Runs a script on the device
-            if len(params) == 1:
-                try:
-                    p = parse_dir(params[0])
-                    f = get(p, None)
-                    fake_file = io.BytesIO(bytes(f, encoding='utf-8'))
-                    run_remote(fake_file, False)
+                            print("File exists on device. Use put! to overwrite.")
                 except RuntimeError as e:
                     print(e)
-                except pyboard.PyboardError as e:
-                    print("Exception raised from MicroPython device:")
-                    print()
+                except FileNotFoundError as e:
                     print(e)
-        elif command == "runl":
-            # Runs a script <l>ocally, on computer
-            if len(params) == 1:
-                try:
-                    run(params[0], False)
-                except RuntimeError as e:
-                    print(e)
-                except pyboard.PyboardError as e:
-                    print("Exception raised from MicroPython device:")
-                    print()
-                    print(e)
-
-            
-
-        elif command in ['rmdir', 'rmdir!']:
-            d_list = params
-            if len(params) == 1 and params[0] == '*':
-                d_list = [d[2:] for d in ls(pico_wd) if d[0] == '+']
-
-            print(f"Marked for deletion: {', '.join(d_list)}")
-
-            if command == 'rmdir!' and len(d_list) > 0:
-                for d in d_list:
-                    d = parse_dir(d)
+            elif command == "mkdir":
+                if len(params) > 0:
+                    for d in params:
+                        try:
+                            mkdir(parse_dir(d), False, True)
+                        except files.DirectoryExistsError:
+                            print(f"Directory already exists: {d}")
+                else:
+                    print("malformed command")
+                    # TODO help message
+            elif command == "ls":
+                # TODO: handle malformed commands
+                d = None
+                if len(params) == 1:
+                    d = parse_dir(params[0])
+                elif len(params) == 0:
+                    d = pico_wd
+                if d[0] != '/':
+                    d = pico_wd + d
+                if d is not None:
                     try:
-                        rmdir(d, False)
+                        for f in ls(d):
+                            print(f)
                     except RuntimeError as e:
                         print(e)
-
-            elif command == 'rmdir' and len(d_list) > 0:
-                try:
-                    for d in d_list:
-                        d = parse_dir(d)
-                        print(f"Delete the directory {d} and everything in it?")
-                        confirm = input("(y/N) >> ")
-                        if confirm in ["y", "yes"]:
-                            try:
-                                rmdir(d, False)
-                            except RuntimeError as e:
-                                print(e)
-                except KeyboardInterrupt:
-                    print("\nCancelling operation!\n")
-            elif len(params) == 0:
-                print("Malformed command") # TODO
-        elif command in ['rm', 'rm!']:
-            d_list = params
-            if len(params) == 1 and params[0] == '*':
-                d_list = [d[2:] for d in ls(pico_wd) if d[0] == '-']
-            
-            if len(d_list) > 0:
-                print(f"Marked for deletion: {', '.join(d_list)}")
-            else:
-                print("Directory is empty of files.")
-
-            if command == 'rm!' and len(d_list) > 0:
-                for d in d_list:
-                    d = parse_dir(d)
+            elif command == "cd":
+                if len(params) == 0:
+                    pico_wd = '/'
+                    #TODO use parse_dir
+                elif len(params) == 1:
+                    d = parse_dir(params[0])
                     try:
-                        rm(d)
+                        x = ls(d)
+                        pico_wd = d
                     except RuntimeError as e:
-                        print(f"No such file, or file is non-empty directory: {d}")
+                        print(e)
+                        
+                else:
+                    print("Malformed command")
+            elif command == "pwd":
+                print(f"PC:\n    {os.getcwd()}")
+                print(f"{port}:\n    {pico_wd}")
+            elif command == "cdl":
+                d = None
+                if len(params) == 1:
+                    d = params[0]
 
-            elif command == 'rm' and len(d_list) > 0:
                 try:
+                    os.chdir(d)
+                except FileNotFoundError as e:
+                    print(e)
+            elif command in ['lsl', 'lsla']:
+                d = None
+                d_list = []
+                if len(params) == 1:
+                    d = params[0]
+                    if d[0] == "~":
+                        d = os.path.expanduser(d)
+                    if os.path.isdir(d):
+                        for f in os.listdir(d):
+                            if f[0] == '.' and command != 'lsla':
+                                continue
+                            elif os.path.isdir(os.path.normpath(d + '/' + f)):
+                                d_list.insert(0, "+ " + f)
+                            else:
+                                d_list.append("- " + f)
+                elif len(params) == 0:
+                        d = os.getcwd()
+                        for f in os.listdir():
+                            if f[0] == '.' and command != 'lsla':
+                                continue
+                            elif os.path.isdir(os.path.normpath(d + '/' + f)):
+                                d_list.insert(0, "+ " + f)
+                            else:
+                                d_list.append("- " + f)
+                if d is None:
+                    print("malformed command.") # TODO
+                elif len(d_list) == 0:
+                    print(f"{d}:")
+                    print("    <Directory is empty.>")
+                else:
+                    print(f"{d}:")
+                    for f in d_list:
+                        print("    " + f)
+            elif command == "repl":
+                print("Connecting interactively to device. (Requires tio)")
+                try:
+                    result = subprocess.run(["tio", port],
+                                            check=True,
+                                            stderr=subprocess.PIPE)
+                    print("Exiting REPL mode... ")
+                except FileNotFoundError:
+                    print("Couldn't find tio. Is it in your PATH?")
+            elif command == "run":
+                # Runs a script on the device
+                if len(params) == 1:
+                    try:
+                        p = parse_dir(params[0])
+                        f = get(p, None)
+                        fake_file = io.BytesIO(bytes(f, encoding='utf-8'))
+                        run_remote(fake_file, False)
+                    except RuntimeError as e:
+                        print(e)
+                    except pyboard.PyboardError as e:
+                        print("Exception raised from MicroPython device:")
+                        print()
+                        print(e)
+            elif command == "runl":
+                # Runs a script <l>ocally, on computer
+                if len(params) == 1:
+                    try:
+                        run(params[0], False)
+                    except RuntimeError as e:
+                        print(e)
+                    except pyboard.PyboardError as e:
+                        print("Exception raised from MicroPython device:")
+                        print()
+                        print(e)
+            elif command in ['rs', 'reset', 'rst']:
+
+                if len(params) == 0:
+                    reset("SOFT")
+                else:
+                    print("malformed command") # TODO
+            elif command.startswith('!'):
+                block_history = True
+                if command == '!':
+                    blurb = history[-10:]
+                    l = len(blurb)
+                    if l > 0:
+                        for t in blurb:
+                            print(f"{l}: {" ".join(t)}")
+                            l -= 1
+                else:
+                    h_param = command[1:] 
+                    if len(params) > 0:
+                        h_param += " " + " ".join(params)
+                    if h_param.isdigit():
+                        i = int(h_param) * -1
+                        try:
+                            queued_cmd = history[i]
+                        except IndexError:
+                            if len(history) > 0:
+                                print(f"!{h_param} is invalid. Max is !{len(history)}.")
+                            else:
+                                print("History log is empty.")
+                    elif h_param == '!':
+                        if len(history) > 0:
+                            queued_cmd = history[-1]
+                        else:
+                            print("History log is empty.")
+                    else:
+                        h_reversed = history[:]
+                        h_reversed.reverse()
+                        for t in h_reversed:
+                            match = " ".join(t)
+                            if match.startswith(h_param):
+                                queued_cmd = t
+                                break
+
+
+
+            elif command in ['rmdir', 'rmdir!']:
+                d_list = params
+                if len(params) == 1 and params[0] == '*':
+                    d_list = [d[2:] for d in ls(pico_wd) if d[0] == '+']
+
+                print(f"Marked for deletion: {', '.join(d_list)}")
+
+                if command == 'rmdir!' and len(d_list) > 0:
                     for d in d_list:
                         d = parse_dir(d)
-                        print(f"Delete {d}?")
-                        confirm = input("(y/N) >> ")
-                        if confirm in ["y", "yes"]:
-                            try:
-                                rm(d)
-                            except RuntimeError as e:
-                                print(f"No such file, or file is non-empty directory: {d}")
-                except KeyboardInterrupt:
-                    print("\nCancelling operation!\n")
-            elif len(params) == 0:
-                print("Malformed command.") # TODO
+                        try:
+                            rmdir(d, False)
+                        except RuntimeError as e:
+                            print(e)
+
+                elif command == 'rmdir' and len(d_list) > 0:
+                    try:
+                        for d in d_list:
+                            d = parse_dir(d)
+                            print(f"Delete the directory {d} and everything in it?")
+                            confirm = input("(y/N) >> ")
+                            if confirm in ["y", "yes"]:
+                                try:
+                                    rmdir(d, False)
+                                except RuntimeError as e:
+                                    print(e)
+                    except KeyboardInterrupt:
+                        print("\nCancelling operation!\n")
+                elif len(params) == 0:
+                    print("Malformed command") # TODO
+            elif command in ['rm', 'rm!']:
+                d_list = params
+                if len(params) == 1 and params[0] == '*':
+                    d_list = [d[2:] for d in ls(pico_wd) if d[0] == '-']
+                
+                if len(d_list) > 0:
+                    print(f"Marked for deletion: {', '.join(d_list)}")
+                else:
+                    print("Directory is empty of files.")
+
+                if command == 'rm!' and len(d_list) > 0:
+                    for d in d_list:
+                        d = parse_dir(d)
+                        try:
+                            rm(d)
+                        except RuntimeError as e:
+                            print(f"No such file, or file is non-empty directory: {d}")
+
+                elif command == 'rm' and len(d_list) > 0:
+                    try:
+                        for d in d_list:
+                            d = parse_dir(d)
+                            print(f"Delete {d}?")
+                            confirm = input("(y/N) >> ")
+                            if confirm in ["y", "yes"]:
+                                try:
+                                    rm(d)
+                                except RuntimeError as e:
+                                    print(f"No such file, or file is non-empty directory: {d}")
+                    except KeyboardInterrupt:
+                        print("\nCancelling operation!\n")
+                elif len(params) == 0:
+                    print("Malformed command.") # TODO
+
+            if block_history == False:
+                history.append(tokens)
+
+        except KeyboardInterrupt:
+            print("\n")
+            continue
+        except EOFError:
+            exit("\nTerminating program...")
 
     # Try to ensure the board serial connection is always gracefully closed.
     if _board is not None:
@@ -658,3 +716,7 @@ if __name__ == "__main__":
             # and shouldn't cause a new error or problem if the connection can't
             # be closed.
             pass
+    
+if __name__ == "__main__":
+    cli_interactive()
+
