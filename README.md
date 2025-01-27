@@ -2,12 +2,18 @@
 
 This is a fork of ampy to add an interactive frontend to the program. It also means to add some extra
 functionality to make manipulation of files on the local and remote system more like working in a linux
-terminal. Little bug fixes will be added as necessary. This fork does not raise the ubinascii error when
-working with circuitpython (although a lot of these features are unnecessary with CircuitPy since it's
-drag and drop.)
+terminal. Little bug fixes will be added as necessary. This tool is focused on MicroPython compatibility
+right now and so no guarantees any of this will work with CircuitPython.
 
-Development is very very early right now, so expect minimal functionality, lots of bugs, and poor error
-handling!
+At present, the program is in decent working order. The basics are all there, and some error handling has
+been implemented. All the file manipulation commands have basic safeguards against file overwrites and 
+catastrophic accidental file deletion. This version can execute a script living on the microcontroller, not
+just a script on the local computer. It also keeps track of the current working directory in the microcontroller
+as well as the local computer, and allows for navigation and file manipulation relative to working directory in
+remote and local systems. 
+
+There is no help system as of yet - you can scroll through the if-elif tree in ampy/cli_interactive:cli_interactive
+to see the commands until I get documentation in order.
 
 ## ampy
 
