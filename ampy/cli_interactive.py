@@ -365,7 +365,8 @@ def parse_dir(my_d: str):
         d = pico_wd + d
 
     d = os.path.normpath(d)
-    d = os.path.expanduser(d)
+    if '~' in d:
+        raise FileNotFoundError("Remote device has no home directory.")
     print(f"Returning {d}")
     return d
 
@@ -374,7 +375,7 @@ if __name__ == "__main__":
         if pico_wd[-1] != '/':
             pico_wd = pico_wd + '/'
 
-        #get, mkdir, ls, *cd, put, rm, rmdir, run, reset
+        #%get, %mkdir, %ls, *cd, put, rm, rmdir, run, reset
         #lsl, pwd, cdl, edit, repl, port, history
         query = input(f"ampy in {pico_wd} >>> ")
         tokens = query.split(" ")
@@ -431,8 +432,6 @@ if __name__ == "__main__":
                 print(e)
             except FileNotFoundError as e:
                 print(e)
-
-
         elif command == "mkdir":
             if len(params) > 0:
                 for d in params:
@@ -520,6 +519,69 @@ if __name__ == "__main__":
                 print(f"{d}:")
                 for f in d_list:
                     print("    " + f)
+        elif command in ['rmdir', 'rmdir!']:
+            d_list = params
+            if len(params) == 1 and params[0] == '*':
+                d_list = [d[2:] for d in ls(pico_wd) if d[0] == '+']
+
+            print(f"Marked for deletion: {', '.join(d_list)}")
+
+            if command == 'rmdir!' and len(d_list) > 0:
+                for d in d_list:
+                    d = parse_dir(d)
+                    try:
+                        rmdir(d, False)
+                    except RuntimeError as e:
+                        print(e)
+
+            elif command == 'rmdir' and len(d_list) > 0:
+                try:
+                    for d in d_list:
+                        d = parse_dir(d)
+                        print(f"Delete the directory {d} and everything in it?")
+                        confirm = input("(y/N) >> ")
+                        if confirm in ["y", "yes"]:
+                            try:
+                                rmdir(d, False)
+                            except RuntimeError as e:
+                                print(e)
+                except KeyboardInterrupt:
+                    print("\nCancelling operation!\n")
+            elif len(params) == 0:
+                print("Malformed command") # TODO
+        elif command in ['rm', 'rm!']:
+            d_list = params
+            if len(params) == 1 and params[0] == '*':
+                d_list = [d[2:] for d in ls(pico_wd) if d[0] == '-']
+            
+            if len(d_list) > 0:
+                print(f"Marked for deletion: {', '.join(d_list)}")
+            else:
+                print("Directory is empty of files.")
+
+            if command == 'rm!' and len(d_list) > 0:
+                for d in d_list:
+                    d = parse_dir(d)
+                    try:
+                        rm(d)
+                    except RuntimeError as e:
+                        print(e)
+
+            elif command == 'rm' and len(d_list) > 0:
+                try:
+                    for d in d_list:
+                        d = parse_dir(d)
+                        print(f"Delete {d}?")
+                        confirm = input("(y/N) >> ")
+                        if confirm in ["y", "yes"]:
+                            try:
+                                rm(d)
+                            except RuntimeError as e:
+                                print(f"No such file, or file is non-empty directory: {d}")
+                except KeyboardInterrupt:
+                    print("\nCancelling operation!\n")
+            elif len(params) == 0:
+                print("Malformed command.") # TODO
 
     # Try to ensure the board serial connection is always gracefully closed.
     if _board is not None:
