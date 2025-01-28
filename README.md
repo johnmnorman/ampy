@@ -5,15 +5,20 @@ functionality to make manipulation of files on the local and remote system more 
 terminal. Little bug fixes will be added as necessary. This tool is focused on MicroPython compatibility
 right now and so no guarantees any of this will work with CircuitPython.
 
-At present, the program is in decent working order. The basics are all there, and some error handling has
-been implemented. All the file manipulation commands have basic safeguards against file overwrites and 
-catastrophic accidental file deletion. This version can execute a script living on the microcontroller, not
-just a script on the local computer. It also keeps track of the current working directory in the microcontroller
-as well as the local computer, and allows for navigation and file manipulation relative to working directory in
-remote and local systems. 
+As of now, all features of ampy are available to the new interactive client, plus the quality-of-life stuff to
+make file management between computer and device easier. The tool can drop you into the REPL of your device with
+tio, and everything's fully documented through an in-client help command. 
 
-There is no help system as of yet - you can scroll through the if-elif tree in ampy/cli_interactive:cli_interactive
-to see the commands until I get documentation in order.
+Features:
+- Interactive bash-style client to manage a MicroPython device on the cli
+- Client implements a working directory on your MicroPython device's filesystem and manages the working directory on your local PC
+- Filesystem navigation relative to current working directory (on both PC and microcontroller filesystem)
+- Overwrite protection for file I/O operations. 
+- Client tracks what is a file and what is a directory and tells you which is which.
+- Remotely execute script files stored on your microcontroller as well as files stored locally on your PC
+- Client keeps track of previous commands - quickly re-enter long commands using partial implementation of bash bang syntax
+
+I am confident there are bugs to track down and features which need some finessing, but the basics are all there!
 
 ## ampy
 
