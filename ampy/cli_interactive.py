@@ -427,14 +427,72 @@ def get_help(command):
             "port": ["port [new_port_name]",
                      "If called without parameters, prints port name. Otherwise, tries to set port to new_port_name."],
             "put": ["put local_file [new_name]",
-                    "Uploads a file from your computer to your MicroPython device."]
+                    "Uploads a file from your computer to your MicroPython device."],
+            "put!": ["put! local_file [new_name]",
+                     "Uploads a file from your computer to your MicroPython device, overwriting if necessary."],
+            "mkdir": ["mkdir dir_name [dir_name2 ...]",
+                      "Makes one or more directories, using relative or absolute paths."],
+            "ls": ["ls [dir_name]",
+                   "Lists the contents of the current working directory on your MicroPython device, or of the specified directory."],
+            "cd": ["cd [dir_name]",
+                   "Changes working directory on your MicroPython device."],
+            "pwd": ["pwd",
+                    "Prints the working directories on your MicroPython device and local computer."],
+            "cdl": ["cdl [dir_name]",
+                    "Changes working directory on your local computer."],
+            "lsl": ["lsl [dir_name]",
+                    "Lists the contents of your local computer's current working directory or of the specified directory. Does not show dotfiles. Mnemonic: ls local."],
+            "lsla": ["lsla [dir_name]",
+                     "Lists the contents of your local working directory or a specified directory. showing any dotfiles as well."],
+            "repl": ["repl",
+                     "Invokes tio to provide access to your MicroPython device's REPL."],
+            "run": ["run [-q] file",
+                    "Runs a script located on your MicroPython device, prints any output, and waits for the script to finish executing. Use -q (mnemonic: quiet) to silence output and proceed without waiting for the script to finish."],
+            "runl": ["runl [-q] file",
+                     "Same as run, but looks for the file on your local computer instead."],
+            "rs": ["rs",
+                   "Soft-resets the device as if you sent Ctrl+D through its REPL."],
+            "docs-fs": ["",
+                     "Notes on filesystem navigation:\nWhenever possible this program emulates filesystem navigation within bash, for familiarity. A filepath beginning with `/` is read as an absolute path starting from the root of the filesystem. Two dots `..` will indicate the directory above your current directory. When a path is for your local computer, a path can begin with a tilde `~` to indicate your home directory. To indicate a file should be copied into the directory foo, you should write `foo/`. To indicate a file should try to overwrite foo, write `foo`. A directory that does not begin with `/` is read as relative to the current working directory."], 
+            "help": ["help [entry]",
+                     "Prints a help message pertaining to entry, or a list of available commands and documentation if no entry is specified."],
+            "!": ["",
+                  "The bang command accesses command history much like in bash:\n- A single bang brings up a recent command history.\n- Bang and a number re-enters the corresponding command from the recent history (i.e. `!3`)\n- Bang-bang (i.e. `!!`) re-enters the most recent command.\n- Bang and a non-number query re-enters the first command that starts with that query. If you just entered the command `ls /foo/bar/baz`, you could use `!ls /f` to match that command.\n\nThe log only shows 10 recent commands at most, but it saves every command you enter (although history is not saved between sessions)."]
             } 
+    if command in compendium.keys():
+        usage, doc = compendium[command]
+
+        print(f"HELP ENTRY: {command}")
+        print()
+        print('    ' + doc)
+        if len(usage) > 0:
+            print()
+            print("USAGE:")
+            print("    " + usage)
+    else:
+        print("Available help entries:")
+        i = 0
+        line = '    '
+        for k in sorted(compendium.keys()):
+            line += k
+            if i % 5 == 4:
+                print(line)
+                line = '    '
+            else:
+                line += ', '
+            i += 1
+        
+
 def cli_interactive():
     global pico_wd
     global queued_cmd
     global port
     global _board
+    print("Welcome to Ampy! Type `help` or enter a command to get started!")
+    # TODO add descriptive messages for output of cd, for ls an empty folder, etc
     while True:
+        if queued_cmd is None:
+            print()
         try:
             block_history = False
             if pico_wd[-1] != '/':
@@ -442,6 +500,7 @@ def cli_interactive():
 
             if queued_cmd is None:
                 query = input(f"ampy in {port}{pico_wd} >>> ")
+                print()
                 tokens = query.split(" ")
                 command = tokens[0]
                 params = tokens[1:]
@@ -469,6 +528,11 @@ def cli_interactive():
                     print(e)
                 except FileExistsError:
                     print("Local file already exists. Use get! to overwrite.")
+            elif command == "help":
+                if len(params) == 1:
+                    get_help(params[0])
+                else:
+                    get_help(None)
             elif command == "port":
                 if len(params) == 0:
                     print(f"Device port is:\n    {port}")
