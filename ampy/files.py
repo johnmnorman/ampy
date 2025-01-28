@@ -79,7 +79,7 @@ class Files(object):
             # Check if this is an OSError #2, i.e. file doesn't exist and
             # rethrow it as something more descriptive.
             try:
-                message = ex.args[2].decode("utf-8")
+                message = str(ex)
                 if message.find("OSError") != -1 and message.find("2") != -1:
                     raise RuntimeError("No such file: {0}".format(filename))
                 else:
@@ -174,7 +174,7 @@ class Files(object):
         except PyboardError as ex:
             # Check if this is an OSError #2, i.e. directory doesn't exist and
             # rethrow it as something more descriptive.
-            message = ex.args[2].decode("utf-8")
+            message = str(ex)
             if message.find("OSError") != -1 and message.find("2") != 1:
                 raise RuntimeError("No such directory: {0}".format(directory))
             else:
@@ -250,7 +250,7 @@ class Files(object):
             out = self._pyboard.exec_(textwrap.dedent(command))
         except PyboardError as ex:
             # Check if this is an OSError #17, i.e. directory already exists.
-            message = ex.args[2].decode("utf-8")
+            message = str(ex)
             if message.find("OSError") != -1 and message.find("17") != -1:
                 if not exists_okay:
                     raise DirectoryExistsError(
@@ -297,7 +297,7 @@ class Files(object):
         try:
             out = self._pyboard.exec_(textwrap.dedent(command))
         except PyboardError as ex:
-            message = ex.args[2].decode("utf-8")
+            message = str(ex)
             # Check if this is an OSError #2, i.e. file/directory doesn't exist
             # and rethrow it as something more descriptive.
             if message.find("OSError") != -1 and message.find("2") != 1:
@@ -344,7 +344,7 @@ class Files(object):
         try:
             out = self._pyboard.exec_(textwrap.dedent(command))
         except PyboardError as ex:
-            message = ex.args[2].decode("utf-8")
+            message = str(ex)
             # Check if this is an OSError #2, i.e. directory doesn't exist
             # and rethrow it as something more descriptive.
             if message.find("OSError") != -1 and message.find("2") != 1:

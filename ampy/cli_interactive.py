@@ -31,7 +31,7 @@ import subprocess
 
 import click
 import dotenv
-from progress_bar import ProgressBar
+import ampy.progress_bar as progress_bar
 
 
 # Load AMPY_PORT et al from .ampy file
@@ -200,12 +200,12 @@ def put(local, remote):
     # Otherwise it's a file and should simply be copied over.
     if os.path.isdir(local):
         # Create progress bar for each file
-        pb_bath =  ProgressBar('Overall progress')
+        pb_bath =  progress_bar.ProgressBarBath('Overall progress')
         for parent, child_dirs, child_files in os.walk(local, followlinks=True):
             for filename in child_files:
                 path = os.path.join(parent, filename)
                 size = os.stat(path).st_size
-                pb_bath.add_subjob(PorgressBar(name=path,total=size ))
+                pb_bath.add_subjob(progress_bar.ProgressBar(name=path, total=size))
 
         # Directory copy, create the directory and walk all children to copy
         # over the files.
@@ -236,7 +236,7 @@ def put(local, remote):
         # Put the file on the board.
         with open(local, "rb") as infile:
             data = infile.read()
-            progress = PorgressBar(name=local, total=len(data))
+            progress = progress_bar.ProgressBar(name=local, total=len(data))
             board_files = files.Files(_board)
             board_files.put(remote, data, progress.on_progress_done)
     print('')
@@ -275,7 +275,7 @@ def rmdir(remote_folder, missing_okay):
     board_files = files.Files(_board)
     board_files.rmdir(remote_folder, missing_okay=missing_okay)
 
-def run(local_file, no_output):
+def run(file, no_output):
     """Run a script and print its output.
     
     no_output: suppress output for scripts with infinite loops or no output
@@ -299,11 +299,15 @@ def run(local_file, no_output):
     # Run the provided file and print its output.
     board_files = files.Files(_board)
     try:
-        output = board_files.run(local_file, not no_output, not no_output)
+        output = None
+        if type(file) == str:
+            output = board_files.run(file, not no_output, not no_output)
+        elif type(file) == io.BytesIO:
+            output = board_files.run_file(file, not no_output, not no_output)
         if output is not None:
             print(output.decode("utf-8"), end="")
     except IOError:
-        print("Failed to find or read input file: {0}".format(local_file))
+        print("Failed to find or read input file: {0}".format(file))
 
 def run_remote(remote_file, no_output):
     '''Takes an io.BytesIO object as a dummy file'''
@@ -382,7 +386,49 @@ def parse_dir(my_d: str):
     if '~' in d:
         raise FileNotFoundError("Remote device has no home directory.")
     return d
+def base_dir(my_d: str):
+    d = parse_dir(my_d)
+    # /some/dir/ or /some/dir/file
+    # we want same in first case, dir in second
+    print(f"last char is {my_d[-1]}")
+    if my_d[-1] == '/':
+        return d
 
+    d_split = d.split('/')
+    print(f"in base_dir: d_split is {d_split}")
+    if len(d_split) < 2:
+        raise ValueError("Tried to parse an empty string.")
+    elif d_split[0] != '':
+        raise ValueError("Tried to parse a relative directory.")
+    elif len(d_split) == 2:
+        return '/'
+    else:
+        return '/' + '/'.join(d_split[1:-1]) + '/'
+    
+def get_last_dir_component(my_d: str):
+    last = os.path.split(my_d)[1]
+    if last != '':
+        return last
+    else:
+        spl = '/'.split(my_d)
+        spl.reverse()
+        for i in spl:
+            if i != '':
+                return i
+    raise ValueError(f"Couldn't parse directory: {my_d}")
+    
+def get_help(command):
+# get[!], port, put[!], mkdir, ls, cd, pwd, cdl, lsl[a], repl, run, runl, rs, !
+    compendium = {
+            "get": ["get device_file [new_name]",
+                    "Download a file from your MicroPython device. Optionally, give it a new_name. Will not overwrite existing files."],
+            "get!": ["get! device_file [new_name]",
+                     "Download a file from your MicroPython device. Optionally, give it a new_name. NOTE: WILL overwrite existing files."],
+            "port": ["port [new_port_name]",
+                     "If called without parameters, prints port name. Otherwise, tries to set port to new_port_name."],
+            "put": ["put local_file [new_name]",
+                    "Uploads a file from your computer to your MicroPython device."]
+            } 
 def cli_interactive():
     global pico_wd
     global queued_cmd
@@ -394,8 +440,6 @@ def cli_interactive():
             if pico_wd[-1] != '/':
                 pico_wd = pico_wd + '/'
 
-            #%get, %mkdir, %ls, %cd, %put, %rm, %rmdir, %run, %reset
-            #%lsl, %pwd, %cdl, %repl, %port, %history
             if queued_cmd is None:
                 query = input(f"ampy in {port}{pico_wd} >>> ")
                 tokens = query.split(" ")
@@ -411,19 +455,16 @@ def cli_interactive():
                 if len(params) == 2:
                     remote, local = params[0], params[1]
                 elif len(params) == 1:
-                    remote = params[0]
+                    remote = local = params[0]
                 else:
                     print("malformed command")
                     # TODO implement help message
                 try:
-                    if local is not None:
-                        flags = 'xb'
-                        if command == "get!":
-                            flags = 'wb'
-                        with open(local, flags) as f:
-                            get(remote, f)
-                    else:
-                        get(remote, None)
+                    flags = 'xb'
+                    if command == "get!":
+                        flags = 'wb'
+                    with open(local, flags) as f:
+                        get(remote, f)
                 except RuntimeError as e:
                     print(e)
                 except FileExistsError:
@@ -448,28 +489,62 @@ def cli_interactive():
                 local, remote = None, None
                 if len(params) == 2:
                     local, remote = params[0], params[1]
+                    tail = '/' if remote[-1] == '/' else ''
+
+                    remote = parse_dir(remote) + tail
+                    if remote[-1] == '/':
+                        remote = remote + get_last_dir_component(local)
+                        remote = os.path.normpath(remote)
+                        if remote.startswith('//'):
+                            remote = remote[1:]
+                    print(f"remote: {remote}")
                 elif len(params) == 1:
-                    local = remote = params[0]
+                    local = params[0]
+                    # strip trailing / if it's a folder path
+                    local_stripped = local[:-1] if local[-1] == '/' else local
+                    spl = local.split('/')
+                    remote = spl[-1] # should be a dir or file name
+                    remote = parse_dir(remote) # remote path now relative to pico_wd
 
-                file_exists = True
-                try:
-                    file = get(remote, None)
-                except RuntimeError as e:
-                    if "No such" in str(e):
-                        file_exists = False
+                reference_dir = pico_wd
+                if len(params) == 2:
+                    r = params[1]
+                    reference_dir = '/'.join(remote.split('/')[:-1]) + '/'
+                    print(f"ref dir: {reference_dir}")
+
+                file_exists = False
+                file_is_dir = False
+                for f in ls(reference_dir):
+                    if f[0] == '+':
+                        file_is_dir = True
                     else:
-                        raise e
+                        file_is_dir = False
+                        print(f[0])
+                    f = reference_dir + f[2:]
+                    print(f"if {f} == {remote} then file exists")
+                    if f == remote: 
+                        file_exists = True
+                        break
 
                 try:
-                    if local is not None and file_exists == False or command == "put!":
-                        put(local, remote)
+                    if local is not None and file_exists == False \
+                            or command == "put!" and file_is_dir == False:
+                        if remote[-1] == '/':
+                            remote = remote + local
+                            remote = os.path.normpath(remote)
+                        put(os.path.abspath(local), remote)
                     else:
                         if local is None:
                             print("No file specified!") #TODO
+                        elif file_exists and file_is_dir:
+                            print(f"ERROR: {remote} is a directory. Use rmdir to delete it or choose a different name.")
                         else:
                             print("File exists on device. Use put! to overwrite.")
                 except RuntimeError as e:
                     print(e)
+                except pyboard.PyboardError as e:
+                    if "EISDIR" in str(e):
+                        print("A directory by that name exists on the MicroPython device.")
                 except FileNotFoundError as e:
                     print(e)
             elif command == "mkdir":
@@ -567,29 +642,43 @@ def cli_interactive():
                     print("Couldn't find tio. Is it in your PATH?")
             elif command == "run":
                 # Runs a script on the device
-                if len(params) == 1:
+                if len(params) == 1 or len(params) == 2 and params[0] == '-q':
                     try:
-                        p = parse_dir(params[0])
+                        silent = False
+                        script_i = 0
+                        if params[0] == "q":
+                            silent = True
+                            script_i = 1
+                        p = parse_dir(params[script_i])
                         f = get(p, None)
                         fake_file = io.BytesIO(bytes(f, encoding='utf-8'))
-                        run_remote(fake_file, False)
+                        run(fake_file, silent)
                     except RuntimeError as e:
                         print(e)
                     except pyboard.PyboardError as e:
                         print("Exception raised from MicroPython device:")
                         print()
                         print(e)
+                else:
+                    print("malformed command.") # TODO
             elif command == "runl":
                 # Runs a script <l>ocally, on computer
-                if len(params) == 1:
+                if len(params) == 1 or len(params) == 2 and params[0] == '-q':
                     try:
-                        run(params[0], False)
+                        silent = False
+                        script_i = 0
+                        if params[0] == "q":
+                            silent = True
+                            script_i = 1
+                        run(params[script_i], silent)
                     except RuntimeError as e:
                         print(e)
                     except pyboard.PyboardError as e:
                         print("Exception raised from MicroPython device:")
                         print()
                         print(e)
+                else:
+                    print("malformed command.") # TODO
             elif command in ['rs', 'reset', 'rst']:
 
                 if len(params) == 0:
