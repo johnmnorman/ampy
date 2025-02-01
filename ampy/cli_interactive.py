@@ -26,6 +26,7 @@ import io
 import posixpath
 import re
 import serial.serialutil
+from time import sleep
 
 import subprocess
 
@@ -46,6 +47,7 @@ import ampy.pyboard as pyboard
 
 # On Windows fix the COM port path name for ports above 9 (see comment in
 # windows_full_port_name function).
+_board = None
 port = "/dev/ttyACM0"
 baud = 115200
 delay = 0
@@ -54,11 +56,50 @@ pico_wd = '/'
 pc_wd = os.getcwd()
 queued_cmd = None
 cmd = None
+os.chdir(os.path.expanduser('~'))
 
 
 if platform.system() == "Windows":
     port = windows_full_port_name(port)
-_board = pyboard.Pyboard(port, baudrate=baud, rawdelay=delay)
+    
+def init_board(port, baud, delay):
+    try:
+        return pyboard.Pyboard(port, baudrate=baud, rawdelay=delay), None
+    except pyboard.PyboardError as e:
+        return None, e
+ 
+def get_port():
+    try:
+        return input("\nEnter port address >> ")
+    except KeyboardInterrupt:
+        return get_port()
+
+
+def init_board_interactively():
+    global _board
+    global port
+    global baud
+    global delay
+    do_sleep = False
+    _board = None
+    while _board is None:
+        
+        try:
+            if do_sleep:
+                sleep(1.5)
+                do_sleep = False
+            else:
+                _board  = pyboard.Pyboard(port, baudrate=baud, rawdelay=delay) 
+        except pyboard.PyboardError as e:
+            print(f"Error: {e}. Ctrl+C to change port. Ctrl+C, Ctrl+D to exit.")
+            do_sleep = True
+        except KeyboardInterrupt:
+            try:
+                port = get_port()
+            except EOFError:
+                exit("\nTerminating program...\n")
+            
+
 
 def windows_full_port_name(portname):
     # Helper function to generate proper Windows COM port paths.  Apparently
@@ -120,8 +161,7 @@ def mkdir(directory, exists_okay, make_parents):
     missing parents:
 
       ampy --port /board/serial/port mkdir --make-parents /code/for/ampy
-    """
-    # Run the mkdir command.
+    """ # Run the mkdir command.
     board_files = files.Files(_board)
     if make_parents:
         if directory[0] != '/':
@@ -488,6 +528,7 @@ def cli_interactive():
     global queued_cmd
     global port
     global _board
+    init_board_interactively()
     print("Welcome to Ampy! Type `help` or enter a command to get started!")
     # TODO add descriptive messages for output of cd, for ls an empty folder, etc
     while True:
@@ -499,7 +540,7 @@ def cli_interactive():
                 pico_wd = pico_wd + '/'
 
             if queued_cmd is None:
-                query = input(f"ampy in {port}{pico_wd} >>> ")
+                query = input(f"MCU:{port}{pico_wd}\nPC:{os.getcwd()}\n >>> ")
                 print()
                 tokens = query.split(" ")
                 command = tokens[0]
@@ -539,14 +580,20 @@ def cli_interactive():
                 elif len(params) == 1:
                     old_board = _board
                     old_port = port
+                    _board = None
                     try:
-                        _board = pyboard.Pyboard(params[0], baudrate=baud, rawdelay=delay)
+                        while _board is None:
+                            _board, err = init_board(params[0], baud, delay)
+                            if _board is None:
+                                print(f"Error: {err}. Ctrl+C to cancel polling.")
+                                print()
+                                sleep(1)
                         port = params[0]
                         print(f"Device port changed to:\n    {port}")
-                    except pyboard.PyboardError as e:
+                    except KeyboardInterrupt:
                         _board = old_board
                         port = old_port
-                        print("Error: " + str(e))
+                        print("Cancelled. Device port unchanged.")
                 else:
                     print("Malformed command") # TODO help
             elif command in ["put", "put!"]:
@@ -630,21 +677,28 @@ def cli_interactive():
                     d = pico_wd
                 if d[0] != '/':
                     d = pico_wd + d
+                print(d)
                 if d is not None:
                     try:
-                        for f in ls(d):
-                            print(f)
+                        dir_l = ls(d)
+                        if len(dir_l) > 0:
+                            for f in dir_l:
+                                print(f)
+                        else:
+                            print("Directory empty.")
                     except RuntimeError as e:
                         print(e)
             elif command == "cd":
                 if len(params) == 0:
                     pico_wd = '/'
+                    queued_cmd = ["ls"]
                     #TODO use parse_dir
                 elif len(params) == 1:
                     d = parse_dir(params[0])
                     try:
                         x = ls(d)
                         pico_wd = d
+                        queued_cmd = ["ls"]
                     except RuntimeError as e:
                         print(e)
                         
@@ -657,9 +711,15 @@ def cli_interactive():
                 d = None
                 if len(params) == 1:
                     d = params[0]
+                elif len(params) == 0:
+                    d = os.path.expanduser('~')
 
                 try:
+                    d = os.path.normpath(d)
+                    d = os.path.expanduser(d)
+                    d = os.path.expandvars(d)
                     os.chdir(d)
+                    queued_cmd = ["lsl"]
                 except FileNotFoundError as e:
                     print(e)
             elif command in ['lsl', 'lsla']:
@@ -859,6 +919,8 @@ def cli_interactive():
             continue
         except EOFError:
             exit("\nTerminating program...")
+        except serial.serialutil.SerialException:
+            init_board_interactively()
 
     # Try to ensure the board serial connection is always gracefully closed.
     if _board is not None:
